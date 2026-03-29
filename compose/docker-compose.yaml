@@ -5,6 +5,8 @@ services:
     image: hashicorp/vault:1.17
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID}
+      VAULT_ADDR: ${VAULT_ADDR}
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID}
     ports: ["8200:8200"]
     cap_add: ["IPC_LOCK"]
     command: server -dev -dev-root-token-id=${VAULT_DEV_ROOT_TOKEN_ID}
@@ -19,15 +21,6 @@ services:
     ports: ["9000:9000","9001:9001"]
     volumes:
       - minio-data:/data
-    restart: unless-stopped
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:25.0
-    command: start-dev
-    environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_USER}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
-    ports: ["8080:8080"]
     restart: unless-stopped
 
   postgres:

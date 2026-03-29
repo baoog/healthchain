@@ -1,3 +1,9 @@
 /compose/.env
 /.idea/
 /fabric-samples/
+/smart_contract/vendor/
+/chaincode/config/config.yaml
+/chaincode/config/config_b.yaml
+/fcp/config/config.yaml
+/fabric-samples/
+/fabric-samples/

@@ -8,9 +8,13 @@ package di
 
 import (
 	"consentcc/config"
+	"consentcc/internal/adapter/repository"
 	"consentcc/internal/controller/http"
 	"consentcc/internal/controller/http/route"
 	"consentcc/internal/infra/client/fabric"
+	"consentcc/internal/infra/client/fcp"
+	"consentcc/internal/infra/client/jwt"
+	"consentcc/internal/infra/client/minio"
 	"consentcc/internal/infra/client/postgres"
 	"consentcc/internal/infra/client/vault"
 	"consentcc/internal/infra/server"
@@ -31,10 +35,23 @@ func InitializeApplication() (*App, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	healthChainService := service.NewHealthChainService(postgresClient)
-	healthChainController := http.NewHTTPController(serverServer, healthChainService, fabricClient)
-	healthChainRoute := route.NewHealthChainRoute(serverServer, healthChainController)
-	eventConsumer := service.NewEventConsumer(fabricClient, healthChainService)
+	minioClient, err := minio.NewClient(configConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	userRepo := repository.NewUserRepo(postgresClient)
+	healthChainService := service.NewHealthChainService(postgresClient, fabricClient, minioClient, client, userRepo)
+	fcpClient := fcp.NewClient(configConfig)
+	serviceOrchestratorService := service.NewOrchestratorService(client, minioClient, userRepo, fcpClient, configConfig)
+	healthChainController := http.NewHTTPController(serverServer, healthChainService, fabricClient, serviceOrchestratorService)
+	jwtClient := jwt.NewJWTClient(configConfig)
+	userService := service.NewUserService(userRepo, jwtClient)
+	orchestratorController := http.NewOrchestratorHTTPController(healthChainService, serviceOrchestratorService, userService, fabricClient, minioClient, client, fcpClient, configConfig)
+	healthChainRoute := route.NewHealthChainRoute(configConfig, serverServer, healthChainController, orchestratorController, jwtClient)
+	bundleRepo := repository.NewBundleRepo(postgresClient)
+	consentRepo := repository.NewConsentRepo(postgresClient)
+	emergencyAccessRepo := repository.NewEmergencyAccessRepo(postgresClient)
+	eventConsumer := service.NewEventConsumer(fabricClient, healthChainService, postgresClient, bundleRepo, consentRepo, emergencyAccessRepo)
 	app := NewApp(configConfig, serverServer, client, postgresClient, fabricClient, healthChainRoute, eventConsumer)
 	return app, func() {
 	}, nil

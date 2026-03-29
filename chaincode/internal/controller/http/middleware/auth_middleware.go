@@ -1,19 +1,26 @@
 package middleware
 
 import (
+	"consentcc/config"
+	jwt2 "consentcc/internal/infra/client/jwt"
 	"consentcc/internal/model"
+	"fmt"
 	"github.com/labstack/echo/v4"
+	"log"
 	"net/http"
 	"strings"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
-type JWTConfig struct {
-	SigningKey []byte
+type Middleware struct {
+	jwt jwt2.JWTClientProvider
+	cfg *config.Config
 }
 
-func AuthMiddleware(cfg JWTConfig, roles ...model.Role) echo.MiddlewareFunc {
+func NewAuthMiddleware(jwt jwt2.JWTClientProvider, cfg *config.Config) *Middleware {
+	return &Middleware{jwt: jwt, cfg: cfg}
+}
+
+func (m Middleware) AuthMiddleware(roles ...model.Role) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			authHeader := c.Request().Header.Get("Authorization")
@@ -27,50 +34,55 @@ func AuthMiddleware(cfg JWTConfig, roles ...model.Role) echo.MiddlewareFunc {
 			}
 
 			tokenString := parts[1]
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-				return cfg.SigningKey, nil
-			})
-			if err != nil || !token.Valid {
+			claim, err := m.jwt.Verify(tokenString)
+			if err != nil || claim == nil {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
 			}
 
-			claims, ok := token.Claims.(jwt.MapClaims)
-			if !ok {
-				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token claims"})
-			}
-
-			rawUserID, ok := claims["userId"]
-			if !ok {
+			if claim.UserID == "" {
 				return c.JSON(http.StatusForbidden, map[string]string{"error": "userId claim missing"})
 			}
-			userId, _ := rawUserID.(string)
-			if userId == "" {
-				return c.JSON(http.StatusForbidden, map[string]string{"error": "userId empty"})
-			}
 
-			rawRole, ok := claims["role"]
-			if !ok {
+			if claim.Role == "" {
 				return c.JSON(http.StatusForbidden, map[string]string{"error": "role claim missing"})
 			}
 
-			roleStr, _ := rawRole.(string)
-			for _, role := range roles {
-				if model.Role(roleStr) == role {
-					// store in context
-					c.Set("userId", userId)
-					c.Set("role", roleStr)
+			if claim.NationalIdHash == "" {
+				return c.JSON(http.StatusForbidden, map[string]string{"error": "id claim missing"})
+			}
 
-					if roleStr == string(model.RolesConst.Doctor) {
-						rawDepartment, ok := claims["department"]
-						if ok {
-							department, _ := rawDepartment.(string)
-							c.Set("department", department)
-						}
+			for _, role := range roles {
+				if model.Role(claim.Role) == role {
+					// store in context
+					c.Set("userId", claim.UserID)
+					c.Set("role", claim.Role)
+					c.Set("nationalIdHash", claim.NationalIdHash)
+					// set department if doctor
+					if claim.Role == string(model.RolesConst.Doctor) {
+						c.Set("department", claim.Department)
 					}
 					return next(c)
 				}
 			}
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "insufficient role"})
+		}
+	}
+}
+
+func (m Middleware) BasicAuthMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			authHeader := c.Request().Header.Get("X-API-KEY")
+			fmt.Println("BasicAuthMiddleware", authHeader, m.cfg.APIKey)
+			if authHeader == "" {
+				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing Authorization header"})
+			}
+			if authHeader != m.cfg.APIKey {
+				log.Default().Println("Invalid API key:", authHeader, "expected:", m.cfg.APIKey)
+				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid API key"})
+			}
+
+			return next(c)
 		}
 	}
 }

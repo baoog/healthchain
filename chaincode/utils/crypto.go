@@ -68,3 +68,37 @@ func (b *BundleCipher) BuildReader() io.Reader {
 	buf.Write(b.Ciphertext)
 	return buf
 }
+
+func SHA256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func DecryptAESGCM(key []byte, ciphertext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonceSize := gcm.NonceSize()
+	nonce, ct := ciphertext[:nonceSize], ciphertext[nonceSize:]
+
+	return gcm.Open(nil, nonce, ct, nil)
+}
+
+func HashNationalID(countryCode, nationalID string) string {
+	raw := fmt.Sprintf("%s:%s", countryCode, nationalID)
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+func HashFabricIdentity(userID string) string {
+	raw := fmt.Sprintf("%s", userID)
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
